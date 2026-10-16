@@ -26,6 +26,30 @@ services:
       retries: 10
 
 
+  init-db:
+    image: postgres:17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./sql:/sql:ro
+    command:
+      - psql
+      - --no-psqlrc
+      - --set=ON_ERROR_STOP=1
+      - --single-transaction
+      - --file=/sql/stg/001_create_stg.sql
+      - --file=/sql/dds/001_create_dds.sql
+      - --file=/sql/dds/002_processed_raw.sql
+    restart: "no"
+
+
   airflow-db:
     image: postgres:17
 
@@ -53,6 +77,9 @@ services:
       context: .
 
     depends_on:
+      init-db:
+        condition: service_completed_successfully
+
       postgres:
         condition: service_healthy
 
