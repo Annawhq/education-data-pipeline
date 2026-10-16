@@ -1,26 +1,8 @@
-import os
 import uuid
 from datetime import datetime, timezone
-import psycopg
-from dotenv import load_dotenv
 from psycopg.types.json import Jsonb
+from src.db import get_connection
 from src.stg.quizapi_client import get_questions
-
-
-load_dotenv()
-
-
-def get_connection():
-    """
-    Создает подключение к PostgreSQL.
-    """
-    return psycopg.connect(
-        host=os.getenv("POSTGRES_HOST"),
-        port=os.getenv("POSTGRES_PORT"),
-        dbname=os.getenv("POSTGRES_DB"),
-        user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
 
 
 def load_quizapi_questions(
