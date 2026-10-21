@@ -8,6 +8,7 @@ from src.stg.load_quizapi_to_postgres import load_quizapi_questions
     start_date=pendulum.datetime(2026, 10, 10, tz="UTC"),
     schedule="@weekly",
     catchup=False,
+    max_active_runs=1,
     tags=["stg", "quizapi"],
 )
 def load_quizapi_to_stg():

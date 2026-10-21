@@ -13,7 +13,6 @@ services:
 
     volumes:
       - education_postgres_data:/var/lib/postgresql/data
-      - ./sql/stg/001_create_stg.sql:/docker-entrypoint-initdb.d/001_create_stg.sql:ro
 
     healthcheck:
       test:
@@ -51,6 +50,7 @@ services:
       - --file=/sql/dds/002_processed_raw.sql
       - --file=/sql/cdm/001_create_cdm.sql
       - --file=/sql/cdm/002_metabase_reader.sql
+      - --file=/sql/dq/001_create_dq.sql
     restart: "no"
 
 
@@ -106,10 +106,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
+      EXPORT_DIR: /opt/airflow/data/export
+
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
       - airflow_logs:/opt/airflow/logs
+      - ./data/export:/opt/airflow/data/export
 
     ports:
       - "8080:8080"
@@ -131,7 +134,7 @@ services:
       retries: 10
 
   metabase:
-    image: metabase/metabase:latest
+    image: metabase/metabase:v0.64.3.1
     depends_on:
       metabase-db:
         condition: service_healthy

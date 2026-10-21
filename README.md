@@ -40,8 +40,16 @@ QuizAPI → Airflow → STG → DDS → CDM → Metabase
 - автоматическое подключение Metabase к схеме `cdm` через init-контейнер
   `metabase-setup` (идемпотентно).
 
+### Запуск пайплайна одной командой, проверки качества данных, экспорт данных в parquet
+
+- схема `dq` с журналом проверок `dq.check_results` (создаётся сервисом `init-db`);
+- `check_data_quality`: 12 SQL-проверок согласованности DDS и CDM, результат каждого запуска пишется в журнал;
+- `export_dataset`: выгружает текущие версии вопросов из DDS в папку `./data/export` в форматах Parquet, JSONL и готовом LoRA-формате;
+- `run_full_pipeline`: весь конвейер STG → DDS → CDM → DQ → Export.
+
 ## Требования
 
+- Python 3.12.15 или новее (для локального развертывания, в Docker автоматически используется Python 3.13.);
 - Docker Desktop (или Docker Engine + Docker Compose v2);
 - ключ QuizAPI (https://quizapi.io).
 
@@ -67,7 +75,56 @@ DAG’и в Airflow:
 
 - `load_quizapi_to_stg` — по расписанию `@weekly`;
 - `load_stg_to_dds` — вручную;
-- `load_dds_to_cdm` — вручную (запускать после `load_stg_to_dds`).
+- `load_dds_to_cdm` — вручную (запускать после `load_stg_to_dds`);
+- `check_data_quality` - вручную (запускать перед экспортом данных);
+- `export_dataset` - вручную;
+- `run_full_pipeline` - вручную (запускает весь пайплайн).
+
+Журнал проверок (после проверки корректности данных):
+
+```sql
+SELECT check_name, status, rows_violated, checked_at
+FROM dq.check_results
+ORDER BY checked_at DESC
+LIMIT 12;
+```
+
+История по конкретной проверке:
+
+```sql
+SELECT status, rows_violated, checked_at
+FROM dq.check_results
+WHERE check_name = 'cdm_fact_set_matches_dds_current'
+ORDER BY checked_at DESC LIMIT 5;
+```
+
+### Экспорт датасета
+
+Файлы появляются в `./data/export` (папка примонтирована в контейнер Airflow):
+
+| Файл | Назначение |
+| --- | --- |
+| `questions.parquet` | колоночный датасет текущих версий вопросов |
+| `questions.jsonl` | то же в формате JSON-строк |
+| `lora_sft.jsonl` | готовый формат для SFT/LoRA: `instruction` (вопрос + варианты) / `output` (правильный ответ + объяснение) |
+| `metadata.json` | время экспорта, число строк, размеры и sha256 файлов |
+
+Экспорт идемпотентен: файлы каждый раз перезаписываются полным снапшотом.
+
+### Права доступа к папке экспорта (Linux)
+
+Задачи в контейнере Airflow выполняются пользователем с uid 50000, поэтому:
+
+- до первого запуска создайте папку открытой для записи:
+  ```bash
+  mkdir -p data/export && chmod 777 data/export
+  ```
+- если `export_dataset` упал с `PermissionError`:
+  `sudo chmod 777 data/export` и повторный запуск DAG;
+- созданные файлы принадлежат пользователю контейнера: их можно свободно
+  читать и копировать;
+- Fedora/RHEL (SELinux): если при старте контейнеры получают `Permission denied`
+  на смонтированных файлах — временно `sudo setenforce 0` (до перезагрузки).
 
 ### Порядок запуска пайплайна
 
@@ -75,7 +132,14 @@ DAG’и в Airflow:
    (по расписанию или вручную).
 2. Запустить `load_stg_to_dds` — разбор STG в DDS.
 3. Запустить `load_dds_to_cdm` — пересчёт витрин CDM.
-4. Открыть Metabase (http://localhost:3000) и работать с `cdm.*`.
+4. Запустить `check_data_quality` — проверка данных SQL.
+5. Запустить `export_dataset` — импорт датасета после сбора и проверок.
+
+или
+
+2. Запустить `run_full_pipeline` — выполнит шаги 1-5 целиком.
+6. Открыть Metabase (http://localhost:3000) и работать с `cdm.*`.
+7. Датасет забрать из `./data/export`.
 
 ## .env
 
